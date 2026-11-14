@@ -1,0 +1,85 @@
+// server.js
+const express = require('express');
+const cors = require('cors');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Helper function to extract the IATA code from your string format like "Dublin (DUB)"
+function extractIata(airportString) {
+  const match = airportString.match(/\(([A-Z]{3})\)/);
+  return match ? match[1] : null;
+}
+
+app.post('/search', async (req, res) => {
+  try {
+    const { origin, destination, trip_duration_type, max_budget } = req.body;
+    
+    const originIata = extractIata(origin);
+    const destIata = destination ? extractIata(destination) : ''; // Empty defaults to Everywhere on Ryanair's API
+
+    if (!originIata) {
+      return res.status(400).json({ status: 'error', message: 'Invalid origin IATA code' });
+    }
+
+    // 1. Call Ryanair's public, free Fare Finder endpoint
+    // This looks for all active return flight price points from the origin hub
+    const ryanairUrl = `https://ryanair.com{originIata}&arrivalAirportIataCode=${destIata}&market=en-ie`;
+    
+    const apiResponse = await fetch(ryanairUrl);
+    const apiData = await apiResponse.json();
+
+    if (!apiData.fares || !Array.isArray(apiData.fares)) {
+      return res.json({ status: 'success', deals: [] });
+    }
+
+    // 2. Filter and Map the live data into the object structure your frontend expects
+    const formattedDeals = apiData.fares
+      .filter(item => {
+        const outbound = item.outbound;
+        const inbound = item.inbound;
+        const price = item.summary.price.value;
+
+        // Filter: Check max budget constraint from your UI slider
+        if (price > max_budget) return false;
+
+        // Filter: Check trip duration logic
+        if (trip_duration_type === 'daytrip') {
+          // Confirm outbound and return are scheduled on the exact same date
+          const outDate = outbound.departureDate.split('T')[0];
+          const inDate = inbound.departureDate.split('T')[0];
+          return outDate === inDate;
+        }
+        
+        return true; // Keep others if weekend warrior or unrestricted
+      })
+      .map((item, index) => {
+        // Compute descriptive display info
+        const price = item.summary.price.value;
+        const tierLabel = price < 30 ? 'Extreme Saver' : 'Top Pick';
+
+        return {
+          id: `ryanair-deal-${index}`,
+          origin: `${item.outbound.departureAirport.name} (${item.outbound.departureAirport.iataCode})`,
+          destination: `${item.outbound.arrivalAirport.name} (${item.outbound.arrivalAirport.iataCode})`,
+          total_price: price,
+          deal_tier: tierLabel,
+          // You can also add hidden tracking payloads here for your map lines
+          outbound_time: item.outbound.departureDate,
+          inbound_time: item.inbound.departureDate,
+          flight_number: item.outbound.flightNumber
+        };
+      });
+
+    // Send the structured array straight up to your UI
+    res.json({ status: 'success', deals: formattedDeals });
+
+  } catch (error) {
+    console.error('Error fetching live data:', error);
+    res.status(500).json({ status: 'error', message: 'Internal Server Error fetching schedules' });
+  }
+});
+
+const PORT = 5000;
+app.listen(PORT, () => console.log(`VivaRuta routing server alive on port ${PORT}`));
