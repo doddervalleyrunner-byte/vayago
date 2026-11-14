@@ -22,6 +22,6 @@ jobs:
 
       - name: Scan Ryanair & Send Daily Digest
         env:
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_API_KEY2: ${{ secrets.RESEND_API_KEY2 }}
           ALERT_RECIPIENT: ${{ secrets.ALERT_RECIPIENT }}
         run: python send_digest.py

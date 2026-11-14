@@ -59,17 +59,19 @@ def build_email_html(deals):
     """
 
 def send_alert():
-    api_key = os.environ.get("RESEND_API_KEY")
+    api_key = os.environ.get("RESEND_API_KEY2")
     recipient = os.environ.get("ALERT_RECIPIENT")
 
     if not api_key or not recipient:
-        print("Missing RESEND_API_KEY or ALERT_RECIPIENT.")
+        print("Missing RESEND_API_KEY2 or ALERT_RECIPIENT.")
         return
 
     deals = get_top_deals()
     if not deals:
         print("No deals found under budget today.")
         return
+
+    cheapest_price = deals[0]["total_price"]
 
     res = requests.post(
         "https://resend.com",
@@ -80,7 +82,7 @@ def send_alert():
         json={
             "from": "VayaGo Alerts <onboarding@resend.dev>",
             "to": [recipient],
-            "subject": f"✈️ VayaGo Alert: {len(deals)} Dublin Daytrips from €{deals[0]['total_price']:.2f}",
+            "subject": f"✈️ VayaGo Alert: {len(deals)} Dublin Daytrips from €{cheapest_price:.2f}",
             "html": build_email_html(deals)
         },
         timeout=10
