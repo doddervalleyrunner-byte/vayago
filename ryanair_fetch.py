@@ -20,14 +20,15 @@ NIGHT_RANGES = {
 def query_ryanair_oneway(session, params):
     url = "https://ryanair.com"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-IE,en;q=0.9",
         "Origin": "https://ryanair.com",
         "Referer": "https://ryanair.com/ie/en/cheap-flights"
     }
-    res = session.get(url, params=params, headers=headers, timeout=10)
+    res = session.get(url, params=params, headers=headers, timeout=8)
     if res.status_code == 403:
-        raise Exception("Ryanair rate-limited requests (403). Wait 10 seconds and try again.")
+        raise Exception("Ryanair blocked cloud server IP (403). Run locally on your laptop Wi-Fi for unrestricted access.")
     res.raise_for_status()
     return res.json().get("fares", list())
 
@@ -43,19 +44,19 @@ def fetch_deals(origin, dest, duration_type, max_budget, specific_date="", targe
             if specific_date:
                 windows = [(specific_date, specific_date)]
             elif weekday_int is not None:
-                # Find the next 10 occurrences of that exact day of the week (e.g. next 10 Saturdays)
                 days_ahead = (weekday_int - today.weekday()) % 7
                 first_match = today + timedelta(days=days_ahead)
                 windows = [
                     ((first_match + timedelta(days=w * 7)).strftime("%Y-%m-%d"),
                      (first_match + timedelta(days=w * 7)).strftime("%Y-%m-%d"))
-                    for w in range(10)
+                    for w in range(6)
                 ]
             else:
+                # 4 ten-day windows = 40 days out, fast enough to finish inside Render's 30s limit
                 windows = [
-                    ((today + timedelta(days=idx * 6)).strftime("%Y-%m-%d"),
-                     (today + timedelta(days=idx * 6 + 5)).strftime("%Y-%m-%d"))
-                    for idx in range(10)
+                    ((today + timedelta(days=idx * 10)).strftime("%Y-%m-%d"),
+                     (today + timedelta(days=idx * 10 + 9)).strftime("%Y-%m-%d"))
+                    for idx in range(4)
                 ]
 
             for w_start, w_end in windows:
@@ -70,7 +71,7 @@ def fetch_deals(origin, dest, duration_type, max_budget, specific_date="", targe
                     out_params["arrivalAirportIataCode"] = dest
 
                 out_fares = query_ryanair_oneway(session, out_params)
-                time.sleep(0.15)
+                time.sleep(0.1)
 
                 valid_out = list()
                 needed_origins = set()
@@ -91,7 +92,7 @@ def fetch_deals(origin, dest, duration_type, max_budget, specific_date="", targe
                     continue
 
                 in_by_key = dict()
-                for dep_code in list(needed_origins)[:25]:
+                for dep_code in list(needed_origins)[:12]:
                     in_params = {
                         "departureAirportIataCode": dep_code,
                         "arrivalAirportIataCode": origin,
@@ -101,7 +102,7 @@ def fetch_deals(origin, dest, duration_type, max_budget, specific_date="", targe
                         "limit": 60
                     }
                     in_fares = query_ryanair_oneway(session, in_params)
-                    time.sleep(0.15)
+                    time.sleep(0.1)
 
                     for item in in_fares:
                         leg = item.get("outbound", dict())
@@ -157,7 +158,7 @@ def fetch_deals(origin, dest, duration_type, max_budget, specific_date="", targe
                 in_from = (base_dt + timedelta(days=min_nights)).strftime("%Y-%m-%d")
                 in_to = (base_dt + timedelta(days=max_nights)).strftime("%Y-%m-%d")
             else:
-                end_window = today + timedelta(days=75)
+                end_window = today + timedelta(days=60)
                 out_from = today.strftime("%Y-%m-%d")
                 out_to = (end_window - timedelta(days=min_nights)).strftime("%Y-%m-%d")
                 in_from = (today + timedelta(days=min_nights)).strftime("%Y-%m-%d")
@@ -174,7 +175,7 @@ def fetch_deals(origin, dest, duration_type, max_budget, specific_date="", targe
                 out_params["arrivalAirportIataCode"] = dest
 
             out_fares = query_ryanair_oneway(session, out_params)
-            time.sleep(0.18)
+            time.sleep(0.1)
 
             by_dest = dict()
             for item in out_fares:
@@ -192,7 +193,7 @@ def fetch_deals(origin, dest, duration_type, max_budget, specific_date="", targe
                     continue
                 by_dest.setdefault(arr_code, list()).append((leg, float(price)))
 
-            for dest_code, out_list in list(by_dest.items())[:25]:
+            for dest_code, out_list in list(by_dest.items())[:15]:
                 in_params = {
                     "departureAirportIataCode": dest_code,
                     "arrivalAirportIataCode": origin,
@@ -202,7 +203,7 @@ def fetch_deals(origin, dest, duration_type, max_budget, specific_date="", targe
                     "limit": 100
                 }
                 in_fares = query_ryanair_oneway(session, in_params)
-                time.sleep(0.15)
+                time.sleep(0.1)
 
                 for out_leg, out_price in out_list:
                     out_dep = datetime.fromisoformat(out_leg["departureDate"])
@@ -211,4 +212,3 @@ def fetch_deals(origin, dest, duration_type, max_budget, specific_date="", targe
 
                     for item in in_fares:
                         in_leg = item.get("outbound", dict())
-                        in_price = item.get("summary", dict()).get("price", dict()).get("value")
