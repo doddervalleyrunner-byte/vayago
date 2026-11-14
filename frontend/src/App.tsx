@@ -4,6 +4,7 @@ import { CITY_INTEL } from './cityData';
 import { SearchBar } from './SearchBar';
 import { FilterBar } from './FilterBar';
 import { AuthScreen } from './AuthScreen';
+import { AdminUsersModal } from './AdminUsersModal';
 
 export default function App() {
   const [user, setUser] = useState<any>(() => {
@@ -15,6 +16,7 @@ export default function App() {
     }
   });
   const [checkingKey, setCheckingKey] = useState(false);
+  const [showAdminModal, setShowAdminModal] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -83,14 +85,9 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          origin: originInput,
-          destination: destInput,
-          specific_date: specificDate,
-          target_weekday: targetWeekday,
-          trip_duration_type: duration,
-          max_budget: maxBudget,
-          baggage_type: baggageType,
-          allow_split_tickets: allowSplit
+          origin: originInput, destination: destInput, specific_date: specificDate,
+          target_weekday: targetWeekday, trip_duration_type: duration, max_budget: maxBudget,
+          baggage_type: baggageType, allow_split_tickets: allowSplit
         })
       });
       const data = await res.json();
@@ -100,7 +97,7 @@ export default function App() {
       } else {
         setErrorMsg(data.message || 'Backend returned an error.');
       }
-    } catch (e) {
+    } catch {
       setErrorMsg('Cannot reach the runway. Please make sure the server is running.');
     } finally {
       setLoading(false);
@@ -138,16 +135,29 @@ export default function App() {
   }, [deals, sortBy, dayFilter, minHours8, under50Only, noEarlyAlarm, includeTransfer, showSavedOnly, savedIds]);
 
   if (checkingKey) {
-    return (
-      <div className="min-h-screen bg-[#003893] text-[#FCD116] flex items-center justify-center font-black text-lg">
-        🔑 Verifying VIP Admin Pass...
-      </div>
-    );
+    return <div className="min-h-screen bg-[#003893] text-[#FCD116] flex items-center justify-center font-black text-lg">🔑 Verifying VIP Admin Pass...</div>;
   }
 
   if (!user) {
     return <AuthScreen onLogin={setUser} />;
   }
+
+  const searchProps = {
+    originInput, setOriginInput, showOrigin, setShowOrigin, destInput, setDestInput, showDest, setShowDest,
+    specificDate, setSpecificDate, targetWeekday, setTargetWeekday, duration, setDuration,
+    maxBudget, setMaxBudget, baggageType, setBaggageType, allowSplit, setAllowSplit,
+    loading, handleSearch, filteredCount: filteredDeals.length, totalCount: deals.length
+  };
+
+  const filterProps = {
+    sortBy, setSortBy, includeTransfer, setIncludeTransfer, noEarlyAlarm, setNoEarlyAlarm,
+    dayFilter, setDayFilter, minHours8, setMinHours8, under50Only, setUnder50Only
+  };
+
+  const gridProps = {
+    deals: filteredDeals, selectedId, setSelectedId, savedIds, toggleSave,
+    hasRawDeals: deals.length > 0, errorMsg, setSortBy, includeTransfer
+  };
 
   return (
     <div className="min-h-screen bg-[#FFFDF7] text-slate-800 font-sans antialiased pb-12 flex flex-col justify-between">
@@ -157,7 +167,6 @@ export default function App() {
           <div className="w-1/4 bg-[#003893]" />
           <div className="w-1/4 bg-[#CE1126]" />
         </div>
-
         <div className="bg-gradient-to-r from-[#003893] via-[#002B70] to-[#001F52] text-white pt-8 pb-16 px-4 shadow-md">
           <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
             <div>
@@ -169,46 +178,26 @@ export default function App() {
               <p className="text-blue-100 text-sm font-medium mt-1">Breakfast at home, espresso in Europe, back in your own bed by midnight.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2.5">
-              {savedIds.length > 0 && (
-                <button type="button" onClick={() => setShowSavedOnly(!showSavedOnly)} className={`px-3.5 py-2 rounded-2xl text-xs font-black cursor-pointer border ${showSavedOnly ? 'bg-[#CE1126] text-white border-white' : 'bg-white text-[#003893] border-[#FCD116]'}`}>
-                  ❤️ Saved ({savedIds.length})
-                </button>
+              {user.isAdmin && (
+                <button type="button" onClick={() => setShowAdminModal(true)} className="bg-[#FCD116] hover:brightness-95 text-[#003893] px-3.5 py-2 rounded-2xl text-xs font-black cursor-pointer">👥 Fan List</button>
               )}
-              <div className="bg-white/10 border border-[#FCD116]/40 px-3.5 py-2 rounded-2xl text-xs font-bold text-[#FCD116]">
-                👋 Hi, {user.name}
-              </div>
-              <button type="button" onClick={handleLogout} className="bg-[#CE1126] hover:bg-[#a80d1e] text-white px-3.5 py-2 rounded-2xl text-xs font-black cursor-pointer">
-                Log Out
-              </button>
+              {savedIds.length > 0 && (
+                <button type="button" onClick={() => setShowSavedOnly(!showSavedOnly)} className={`px-3.5 py-2 rounded-2xl text-xs font-black cursor-pointer border ${showSavedOnly ? 'bg-[#CE1126] text-white border-white' : 'bg-white text-[#003893] border-[#FCD116]'}`}>❤️ Saved ({savedIds.length})</button>
+              )}
+              <div className="bg-white/10 border border-[#FCD116]/40 px-3.5 py-2 rounded-2xl text-xs font-bold text-[#FCD116]">👋 Hi, {user.name}</div>
+              <button type="button" onClick={handleLogout} className="bg-[#CE1126] hover:bg-[#a80d1e] text-white px-3.5 py-2 rounded-2xl text-xs font-black cursor-pointer">Log Out</button>
             </div>
           </div>
         </div>
-
-        <SearchBar
-          originInput={originInput} setOriginInput={setOriginInput} showOrigin={showOrigin} setShowOrigin={setShowOrigin}
-          destInput={destInput} setDestInput={setDestInput} showDest={showDest} setShowDest={setShowDest}
-          specificDate={specificDate} setSpecificDate={setSpecificDate} targetWeekday={targetWeekday} setTargetWeekday={setTargetWeekday}
-          duration={duration} setDuration={setDuration} maxBudget={maxBudget} setMaxBudget={setMaxBudget}
-          baggageType={baggageType} setBaggageType={setBaggageType} allowSplit={allowSplit} setAllowSplit={setAllowSplit}
-          loading={loading} handleSearch={handleSearch} filteredCount={filteredDeals.length} totalCount={deals.length}
-        />
-
+        <SearchBar {...searchProps} />
         <div className="max-w-6xl mx-auto px-4 mt-8">
           {errorMsg && <div className="bg-red-50 border-2 border-[#CE1126]/30 text-[#CE1126] p-4 rounded-2xl text-sm font-bold mb-6 shadow-sm">⚠️ {errorMsg}</div>}
-
-          {deals.length > 0 && (
-            <FilterBar
-              sortBy={sortBy} setSortBy={setSortBy} includeTransfer={includeTransfer} setIncludeTransfer={setIncludeTransfer}
-              noEarlyAlarm={noEarlyAlarm} setNoEarlyAlarm={setNoEarlyAlarm} dayFilter={dayFilter} setDayFilter={setDayFilter}
-              minHours8={minHours8} setMinHours8={setMinHours8} under50Only={under50Only} setUnder50Only={setUnder50Only}
-            />
-          )}
-
-          <ResultsGrid
-            deals={filteredDeals} selectedId={selectedId} setSelectedId={setSelectedId} savedIds={savedIds}
-            toggleSave={toggleSave} hasRawDeals={deals.length > 0} errorMsg={errorMsg} setSortBy={setSortBy} includeTransfer={includeTransfer}
-          />
+          {deals.length > 0 && <FilterBar {...filterProps} />}
+          <ResultsGrid {...gridProps} />
         </div>
       </div>
-
-      <footer className="max-w-6xl mx-auto px-4 mt-14 pt-6 border-t border-amber-200/60 text-center text-xs font-bold text-slate-400">
+      {showAdminModal && user.adminKey && <AdminUsersModal adminKey={user.adminKey} onClose={() => setShowAdminModal(false)} />}
+      <footer className="max-w-6xl mx-auto px-4 mt-14 pt-6 border-t border-amber-200/60 text-center text-xs font-bold text-slate-400">🌍 VayaGo • Built for spontaneous explorers who travel light and live large.</footer>
+    </div>
+  );
+}
