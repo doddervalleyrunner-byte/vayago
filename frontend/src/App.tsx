@@ -41,7 +41,7 @@ export default function App() {
     setShowSavedOnly(false);
     setDayFilter('all');
     try {
-      const res = await fetch('http://localhost:5000/search', {
+      const res = await fetch('/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -63,7 +63,7 @@ export default function App() {
         setErrorMsg(data.message || 'Backend returned an error.');
       }
     } catch {
-      setErrorMsg('Cannot reach the runway (Server.js on port 5000). Make sure your backend terminal is running.');
+      setErrorMsg('Cannot reach the runway. Please try again in a moment.');
     } finally {
       setLoading(false);
     }
