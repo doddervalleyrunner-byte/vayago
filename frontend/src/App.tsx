@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { ResultsGrid, extractCode } from './Lists';
 import { CITY_INTEL } from './cityData';
 import { SearchBar } from './SearchBar';
@@ -7,11 +7,6 @@ import { AuthScreen } from './AuthScreen';
 
 export default function App() {
   const [user, setUser] = useState<any>(() => {
-    if (window.location.search.includes('admin=jamie')) {
-      const adminUser = { name: 'Jamie (Admin)', email: 'admin@vayago.local', isAdmin: true };
-      localStorage.setItem('vayago_user', JSON.stringify(adminUser));
-      return adminUser;
-    }
     try {
       const saved = localStorage.getItem('vayago_user');
       return saved ? JSON.parse(saved) : null;
@@ -19,6 +14,31 @@ export default function App() {
       return null;
     }
   });
+  const [checkingKey, setCheckingKey] = useState(false);
+
+  // Check for unique ?vip= key in the URL and verify with the server
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const vipKey = params.get('vip');
+    if (vipKey) {
+      setCheckingKey(true);
+      fetch('/admin-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: vipKey })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.status === 'success') {
+            localStorage.setItem('vayago_user', JSON.stringify(data.user));
+            setUser(data.user);
+            // Clean the secret key out of the browser URL bar after unlocking
+            window.history.replaceState({}, '', '/');
+          }
+        })
+        .finally(() => setCheckingKey(false));
+    }
+  }, []);
 
   const [originInput, setOriginInput] = useState('Dublin (DUB)');
   const [destInput, setDestInput] = useState('');
@@ -118,6 +138,14 @@ export default function App() {
     if (sortBy === 'dest') list.sort((a, b) => a.destination.localeCompare(b.destination));
     return list;
   }, [deals, sortBy, dayFilter, minHours8, under50Only, noEarlyAlarm, includeTransfer, showSavedOnly, savedIds]);
+
+  if (checkingKey) {
+    return (
+      <div className="min-h-screen bg-[#003893] text-[#FCD116] flex items-center justify-center font-black text-lg">
+        🔑 Verifying VIP Admin Pass...
+      </div>
+    );
+  }
 
   if (!user) {
     return AuthScreen({ onLogin: setUser });

@@ -9,7 +9,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Serve the compiled React website
+// Your unique, unguessable 32-character admin access key
+const ADMIN_SECRET_KEY = process.env.ADMIN_KEY || 'vyg_94k2m8x7p1q6z3w5n9b4v2c8j7h5f1d0';
+
 const distPath = path.join(__dirname, 'frontend', 'dist');
 app.use(express.static(distPath));
 
@@ -27,6 +29,19 @@ function saveUsers(users) {
 function hashPassword(password, salt) {
   return crypto.scryptSync(password, salt, 64).toString('hex');
 }
+
+// Verify unique admin URL token on the server
+app.post('/admin-auth', (req, res) => {
+  const { key } = req.body;
+  if (key && String(key).trim() === ADMIN_SECRET_KEY) {
+    const token = crypto.randomBytes(24).toString('hex');
+    return res.json({
+      status: 'success',
+      user: { name: 'Jamie (Admin)', email: 'admin@vayago.local', token, isAdmin: true }
+    });
+  }
+  return res.status(401).json({ status: 'error', message: 'Invalid admin passkey.' });
+});
 
 app.post('/register', (req, res) => {
   const { name, email, password } = req.body;
@@ -106,7 +121,6 @@ app.post('/search', (req, res) => {
   });
 });
 
-// Send React website for all other routes
 app.get('*', (req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
