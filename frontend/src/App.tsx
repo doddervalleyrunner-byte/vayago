@@ -1,45 +1,10 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { ResultsGrid, extractCode } from './Lists';
 import { CITY_INTEL } from './cityData';
 import { SearchBar } from './SearchBar';
 import { FilterBar } from './FilterBar';
-import { AuthScreen } from './AuthScreen';
-import { AdminUsersModal } from './AdminUsersModal';
 
 export default function App() {
-  const [user, setUser] = useState<any>(() => {
-    try {
-      const saved = localStorage.getItem('vayago_user');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
-  const [checkingKey, setCheckingKey] = useState(false);
-  const [showAdminModal, setShowAdminModal] = useState(false);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const vipKey = params.get('vip');
-    if (vipKey) {
-      setCheckingKey(true);
-      fetch('/admin-auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: vipKey })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data.status === 'success') {
-            localStorage.setItem('vayago_user', JSON.stringify(data.user));
-            setUser(data.user);
-            window.history.replaceState({}, '', '/');
-          }
-        })
-        .finally(() => setCheckingKey(false));
-    }
-  }, []);
-
   const [originInput, setOriginInput] = useState('Dublin (DUB)');
   const [destInput, setDestInput] = useState('');
   const [specificDate, setSpecificDate] = useState('');
@@ -47,8 +12,8 @@ export default function App() {
   const [showOrigin, setShowOrigin] = useState(false);
   const [showDest, setShowDest] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [deals, setDeals] = useState<Array<any>>(Array());
-  const [savedIds, setSavedIds] = useState<Array<string>>(Array());
+  const [deals, setDeals] = useState<Array<any>>([]);
+  const [savedIds, setSavedIds] = useState<Array<string>>([]);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -65,29 +30,29 @@ export default function App() {
   const [includeTransfer, setIncludeTransfer] = useState(false);
   const [showSavedOnly, setShowSavedOnly] = useState(false);
 
-  const handleLogout = () => {
-    localStorage.removeItem('vayago_user');
-    setUser(null);
-  };
-
   const toggleSave = (id: string) => {
     setSavedIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
   };
 
   const handleSearch = async () => {
     setLoading(true);
-    setDeals(Array());
+    setDeals([]);
     setErrorMsg(null);
     setShowSavedOnly(false);
     setDayFilter('all');
     try {
-      const res = await fetch('/search', {
+      const res = await fetch('http://localhost:5000/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          origin: originInput, destination: destInput, specific_date: specificDate,
-          target_weekday: targetWeekday, trip_duration_type: duration, max_budget: maxBudget,
-          baggage_type: baggageType, allow_split_tickets: allowSplit
+          origin: originInput,
+          destination: destInput,
+          specific_date: specificDate,
+          target_weekday: targetWeekday,
+          trip_duration_type: duration,
+          max_budget: maxBudget,
+          baggage_type: baggageType,
+          allow_split_tickets: allowSplit
         })
       });
       const data = await res.json();
@@ -98,7 +63,7 @@ export default function App() {
         setErrorMsg(data.message || 'Backend returned an error.');
       }
     } catch {
-      setErrorMsg('Cannot reach the runway. Please make sure the server is running.');
+      setErrorMsg('Cannot reach the runway (Server.js on port 5000). Make sure your backend terminal is running.');
     } finally {
       setLoading(false);
     }
@@ -134,14 +99,6 @@ export default function App() {
     return list;
   }, [deals, sortBy, dayFilter, minHours8, under50Only, noEarlyAlarm, includeTransfer, showSavedOnly, savedIds]);
 
-  if (checkingKey) {
-    return <div className="min-h-screen bg-[#003893] text-[#FCD116] flex items-center justify-center font-black text-lg">🔑 Verifying VIP Admin Pass...</div>;
-  }
-
-  if (!user) {
-    return <AuthScreen onLogin={setUser} />;
-  }
-
   const searchProps = {
     originInput, setOriginInput, showOrigin, setShowOrigin, destInput, setDestInput, showDest, setShowDest,
     specificDate, setSpecificDate, targetWeekday, setTargetWeekday, duration, setDuration,
@@ -167,6 +124,7 @@ export default function App() {
           <div className="w-1/4 bg-[#003893]" />
           <div className="w-1/4 bg-[#CE1126]" />
         </div>
+
         <div className="bg-gradient-to-r from-[#003893] via-[#002B70] to-[#001F52] text-white pt-8 pb-16 px-4 shadow-md">
           <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
             <div>
@@ -177,27 +135,31 @@ export default function App() {
               <h1 className="text-4xl font-black tracking-tight">VAYA<span className="text-[#FCD116]">GO</span></h1>
               <p className="text-blue-100 text-sm font-medium mt-1">Breakfast at home, espresso in Europe, back in your own bed by midnight.</p>
             </div>
-            <div className="flex flex-wrap items-center gap-2.5">
-              {user.isAdmin && (
-                <button type="button" onClick={() => setShowAdminModal(true)} className="bg-[#FCD116] hover:brightness-95 text-[#003893] px-3.5 py-2 rounded-2xl text-xs font-black cursor-pointer">👥 Fan List</button>
-              )}
+            <div className="flex items-center gap-3">
               {savedIds.length > 0 && (
-                <button type="button" onClick={() => setShowSavedOnly(!showSavedOnly)} className={`px-3.5 py-2 rounded-2xl text-xs font-black cursor-pointer border ${showSavedOnly ? 'bg-[#CE1126] text-white border-white' : 'bg-white text-[#003893] border-[#FCD116]'}`}>❤️ Saved ({savedIds.length})</button>
+                <button type="button" onClick={() => setShowSavedOnly(!showSavedOnly)} className={`px-4 py-2.5 rounded-2xl text-xs font-black cursor-pointer border ${showSavedOnly ? 'bg-[#CE1126] text-white border-white' : 'bg-white text-[#003893] border-[#FCD116]'}`}>
+                  ❤️ Saved for Takeoff ({savedIds.length})
+                </button>
               )}
-              <div className="bg-white/10 border border-[#FCD116]/40 px-3.5 py-2 rounded-2xl text-xs font-bold text-[#FCD116]">👋 Hi, {user.name}</div>
-              <button type="button" onClick={handleLogout} className="bg-[#CE1126] hover:bg-[#a80d1e] text-white px-3.5 py-2 rounded-2xl text-xs font-black cursor-pointer">Log Out</button>
+              <div className="bg-white/10 border border-[#FCD116]/40 px-4 py-2.5 rounded-2xl text-xs font-bold text-[#FCD116]">
+                🛫 Boarding Now • Next 8 Weeks
+              </div>
             </div>
           </div>
         </div>
+
         <SearchBar {...searchProps} />
+
         <div className="max-w-6xl mx-auto px-4 mt-8">
           {errorMsg && <div className="bg-red-50 border-2 border-[#CE1126]/30 text-[#CE1126] p-4 rounded-2xl text-sm font-bold mb-6 shadow-sm">⚠️ {errorMsg}</div>}
           {deals.length > 0 && <FilterBar {...filterProps} />}
           <ResultsGrid {...gridProps} />
         </div>
       </div>
-      {showAdminModal && user.adminKey && <AdminUsersModal adminKey={user.adminKey} onClose={() => setShowAdminModal(false)} />}
-      <footer className="max-w-6xl mx-auto px-4 mt-14 pt-6 border-t border-amber-200/60 text-center text-xs font-bold text-slate-400">🌍 VayaGo • Built for spontaneous explorers who travel light and live large.</footer>
+
+      <footer className="max-w-6xl mx-auto px-4 mt-14 pt-6 border-t border-amber-200/60 text-center text-xs font-bold text-slate-400">
+        🌍 VayaGo • Built for spontaneous explorers who travel light and live large.
+      </footer>
     </div>
   );
 }
