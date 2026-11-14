@@ -16,7 +16,6 @@ export default function App() {
   });
   const [checkingKey, setCheckingKey] = useState(false);
 
-  // Check for unique ?vip= key in the URL and verify with the server
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const vipKey = params.get('vip');
@@ -32,7 +31,6 @@ export default function App() {
           if (data.status === 'success') {
             localStorage.setItem('vayago_user', JSON.stringify(data.user));
             setUser(data.user);
-            // Clean the secret key out of the browser URL bar after unlocking
             window.history.replaceState({}, '', '/');
           }
         })
@@ -148,7 +146,7 @@ export default function App() {
   }
 
   if (!user) {
-    return AuthScreen({ onLogin: setUser });
+    return <AuthScreen onLogin={setUser} />;
   }
 
   return (
@@ -186,34 +184,31 @@ export default function App() {
           </div>
         </div>
 
-        {SearchBar({
-          originInput, setOriginInput, showOrigin, setShowOrigin,
-          destInput, setDestInput, showDest, setShowDest,
-          specificDate, setSpecificDate, targetWeekday, setTargetWeekday,
-          duration, setDuration, maxBudget, setMaxBudget,
-          baggageType, setBaggageType, allowSplit, setAllowSplit,
-          loading, handleSearch, filteredCount: filteredDeals.length, totalCount: deals.length
-        })}
+        <SearchBar
+          originInput={originInput} setOriginInput={setOriginInput} showOrigin={showOrigin} setShowOrigin={setShowOrigin}
+          destInput={destInput} setDestInput={setDestInput} showDest={showDest} setShowDest={setShowDest}
+          specificDate={specificDate} setSpecificDate={setSpecificDate} targetWeekday={targetWeekday} setTargetWeekday={setTargetWeekday}
+          duration={duration} setDuration={setDuration} maxBudget={maxBudget} setMaxBudget={setMaxBudget}
+          baggageType={baggageType} setBaggageType={setBaggageType} allowSplit={allowSplit} setAllowSplit={setAllowSplit}
+          loading={loading} handleSearch={handleSearch} filteredCount={filteredDeals.length} totalCount={deals.length}
+        />
 
         <div className="max-w-6xl mx-auto px-4 mt-8">
           {errorMsg && <div className="bg-red-50 border-2 border-[#CE1126]/30 text-[#CE1126] p-4 rounded-2xl text-sm font-bold mb-6 shadow-sm">⚠️ {errorMsg}</div>}
 
-          {deals.length > 0 && FilterBar({
-            sortBy, setSortBy, includeTransfer, setIncludeTransfer,
-            noEarlyAlarm, setNoEarlyAlarm, dayFilter, setDayFilter,
-            minHours8, setMinHours8, under50Only, setUnder50Only
-          })}
+          {deals.length > 0 && (
+            <FilterBar
+              sortBy={sortBy} setSortBy={setSortBy} includeTransfer={includeTransfer} setIncludeTransfer={setIncludeTransfer}
+              noEarlyAlarm={noEarlyAlarm} setNoEarlyAlarm={setNoEarlyAlarm} dayFilter={dayFilter} setDayFilter={setDayFilter}
+              minHours8={minHours8} setMinHours8={setMinHours8} under50Only={under50Only} setUnder50Only={setUnder50Only}
+            />
+          )}
 
-          {ResultsGrid({
-            deals: filteredDeals, selectedId, setSelectedId, savedIds,
-            toggleSave, hasRawDeals: deals.length > 0, errorMsg, setSortBy, includeTransfer
-          })}
+          <ResultsGrid
+            deals={filteredDeals} selectedId={selectedId} setSelectedId={setSelectedId} savedIds={savedIds}
+            toggleSave={toggleSave} hasRawDeals={deals.length > 0} errorMsg={errorMsg} setSortBy={setSortBy} includeTransfer={includeTransfer}
+          />
         </div>
       </div>
 
       <footer className="max-w-6xl mx-auto px-4 mt-14 pt-6 border-t border-amber-200/60 text-center text-xs font-bold text-slate-400">
-        🌍 VayaGo • Built for spontaneous explorers who travel light and live large.
-      </footer>
-    </div>
-  );
-}
