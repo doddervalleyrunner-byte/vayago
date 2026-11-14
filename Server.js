@@ -9,15 +9,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Serve the compiled React website
+const distPath = path.join(__dirname, 'frontend', 'dist');
+app.use(express.static(distPath));
+
 const USERS_FILE = path.join(__dirname, 'users.json');
 
 function loadUsers() {
   if (!fs.existsSync(USERS_FILE)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-  } catch (e) {
-    return {};
-  }
+  try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')); } catch { return {}; }
 }
 
 function saveUsers(users) {
@@ -34,19 +34,15 @@ app.post('/register', (req, res) => {
   if (!cleanEmail || !cleanEmail.includes('@') || String(password || '').length < 6) {
     return res.json({ status: 'error', message: 'Enter a valid email and a password of at least 6 characters.' });
   }
-
   const users = loadUsers();
   if (users[cleanEmail]) {
     return res.json({ status: 'error', message: 'An account with this email already exists. Please log in.' });
   }
-
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = hashPassword(password, salt);
   const displayName = String(name || cleanEmail.split('@')[0]).trim();
-
   users[cleanEmail] = { name: displayName, email: cleanEmail, salt, hash, createdAt: new Date().toISOString() };
   saveUsers(users);
-
   const token = crypto.randomBytes(24).toString('hex');
   return res.json({ status: 'success', user: { name: displayName, email: cleanEmail, token } });
 });
@@ -56,16 +52,9 @@ app.post('/login', (req, res) => {
   const cleanEmail = String(email || '').trim().toLowerCase();
   const users = loadUsers();
   const record = users[cleanEmail];
-
-  if (!record) {
-    return res.json({ status: 'error', message: 'No account found with that email. Switch to Sign Up first.' });
-  }
-
+  if (!record) return res.json({ status: 'error', message: 'No account found with that email.' });
   const attemptHash = hashPassword(String(password || ''), record.salt);
-  if (attemptHash !== record.hash) {
-    return res.json({ status: 'error', message: 'Incorrect password. Please try again.' });
-  }
-
+  if (attemptHash !== record.hash) return res.json({ status: 'error', message: 'Incorrect password.' });
   const token = crypto.randomBytes(24).toString('hex');
   return res.json({ status: 'success', user: { name: record.name, email: record.email, token } });
 });
@@ -83,7 +72,6 @@ function extractIataCode(inputStr, fallback = '') {
 
 app.post('/search', (req, res) => {
   const { origin, destination, specific_date, target_weekday, trip_duration_type, max_budget, baggage_type } = req.body;
-
   const originCode = extractIataCode(origin, 'DUB');
   const destCode = extractIataCode(destination, '');
   const durationType = trip_duration_type || 'daytrip';
@@ -92,16 +80,12 @@ app.post('/search', (req, res) => {
   const weekdayFilter = target_weekday !== undefined && target_weekday !== null ? String(target_weekday).trim() : '';
 
   const scriptPath = path.join(__dirname, 'ryanair_fetch.py');
-  const pyProcess = spawn('python', [scriptPath, originCode, destCode, durationType, String(budgetVal), dateFilter, weekdayFilter]);
+  const pyCmd = process.platform === 'win32' ? 'python' : 'python3';
+  const pyProcess = spawn(pyCmd, [scriptPath, originCode, destCode, durationType, String(budgetVal), dateFilter, weekdayFilter]);
 
   let stdoutData = '';
-  let stderrData = '';
-
   pyProcess.stdout.on('data', (chunk) => { stdoutData += chunk.toString(); });
-  pyProcess.stderr.on('data', (chunk) => { stderrData += chunk.toString(); });
-
   pyProcess.on('close', () => {
-    if (stderrData) console.error('Python stderr:', stderrData);
     try {
       const parsed = JSON.parse(stdoutData.trim());
       if (parsed.status === 'success') {
@@ -114,16 +98,20 @@ app.post('/search', (req, res) => {
           })).filter((d) => d.total_price <= budgetVal);
         }
         return res.json({ status: 'success', deals });
-      } else {
-        return res.json({ status: 'error', message: parsed.message || 'Python script error.' });
       }
-    } catch (err) {
+      return res.json({ status: 'error', message: parsed.message || 'Python script error.' });
+    } catch {
       return res.status(500).json({ status: 'error', message: 'Could not read response from ryanair_fetch.py.' });
     }
   });
 });
 
-const PORT = 5000;
-app.listen(PORT, () => {
-  console.log(`VayaGo Hybrid Engine + Fan Auth running on port ${PORT}`);
+// Send React website for all other routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
+});
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`VayaGo Production Server running on port ${PORT}`);
 });
