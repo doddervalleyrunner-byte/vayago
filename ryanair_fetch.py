@@ -1,208 +1,105 @@
-import sys
-import json
-import time
-import requests
+import sys, json, time, requests
 from datetime import datetime, timedelta
 
-SPANISH_AIRPORTS = {
-    "MAD", "BCN", "GRO", "REU", "AGP", "ALC", "VLC", "SVQ",
-    "PMI", "IBZ", "RMU", "SDR", "SCQ", "OVD", "CDT", "ZAZ",
-    "TFS", "ACE", "LPA", "FUE"
-}
+SPANISH = {"MAD","BCN","GRO","REU","AGP","ALC","VLC","SVQ","PMI","IBZ","RMU","SDR","SCQ","OVD","CDT","ZAZ","TFS","ACE","LPA","FUE"}
+NIGHTS = {"weekend": (2, 3), "shortbreak": (4, 5), "week": (6, 8), "twoweeks": (10, 14)}
+HDRS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0", "Accept": "application/json", "Origin": "https://ryanair.com", "Referer": "https://ryanair.com/ie/en/cheap-flights"}
 
-NIGHT_RANGES = {
-    "weekend": (2, 3),
-    "shortbreak": (4, 5),
-    "week": (6, 8),
-    "twoweeks": (10, 14)
-}
+def get_fares(s, params):
+    r = s.get("https://ryanair.com", params=params, headers=HDRS, timeout=10)
+    if r.status_code == 403 or not r.text.strip():
+        raise Exception("Ryanair blocked Render cloud IP. Run VayaGo locally on your Wi-Fi for unrestricted access.")
+    r.raise_for_status()
+    return r.json().get("fares", [])
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-IE,en-GB;q=0.9,en;q=0.8",
-    "Origin": "https://ryanair.com",
-    "Referer": "https://ryanair.com/ie/en/cheap-flights"
-}
-
-def query_ryanair(session, params):
-    url = "https://ryanair.com"
-    res = session.get(url, params=params, headers=HEADERS, timeout=10)
-    if res.status_code == 403 or not res.text or not res.text.strip():
-        raise Exception("Ryanair blocked Render's cloud IP. Run VayaGo locally on your laptop Wi-Fi for unrestricted access.")
-    res.raise_for_status()
-    return res.json().get("fares", list())
-
-def valid_dest(code, dest):
-    if dest == "LON":
-        return code in ("STN", "LGW", "LTN")
-    if dest == "ESP":
-        return code in SPANISH_AIRPORTS
+def ok_dest(code, dest):
+    if dest == "LON": return code in ("STN", "LGW", "LTN")
+    if dest == "ESP": return code in SPANISH
     return True
 
-def fetch_deals(origin, dest, duration_type, max_budget, specific_date="", target_weekday=""):
-    session = requests.Session()
-    today = datetime.now().date()
-    deals = list()
-    seen = set()
-    w_int = int(target_weekday) if target_weekday.isdigit() else None
+def make_deal(uid, origin, name, code, total, tier, o_leg, i_leg, pred):
+    return {"id": uid, "origin": origin, "destination": f"{name} ({code})", "total_price": total, "deal_tier": tier, "out_dep_time": o_leg["departureDate"], "outbound_time": o_leg["arrivalDate"], "inbound_time": i_leg["departureDate"], "in_arr_time": i_leg["arrivalDate"], "flight_number": f"{o_leg['flightNumber']} / {i_leg['flightNumber']}", "prediction": pred}
 
+def fetch_deals(origin, dest, dur, budget, s_date="", w_day=""):
+    s, today, deals, seen = requests.Session(), datetime.now().date(), [], set()
+    w_int = int(w_day) if w_day.isdigit() else None
     try:
-        # Warm up session cookies from Ryanair homepage first
-        try:
-            session.get("https://ryanair.com/ie/en", headers=HEADERS, timeout=6)
-        except Exception:
-            pass
+        try: s.get("https://ryanair.com/ie/en", headers=HDRS, timeout=5)
+        except Exception: pass
 
-        if duration_type == "daytrip":
-            if specific_date:
-                windows = [(specific_date, specific_date)]
+        if dur == "daytrip":
+            if s_date: wins = [(s_date, s_date)]
             elif w_int is not None:
-                first = today + timedelta(days=(w_int - today.weekday()) % 7)
-                windows = [
-                    ((first + timedelta(days=w * 7)).strftime("%Y-%m-%d"),
-                     (first + timedelta(days=w * 7)).strftime("%Y-%m-%d"))
-                    for w in range(6)
-                ]
+                f = today + timedelta(days=(w_int - today.weekday()) % 7)
+                wins = [((f + timedelta(days=w*7)).strftime("%Y-%m-%d"), (f + timedelta(days=w*7)).strftime("%Y-%m-%d")) for w in range(6)]
             else:
-                windows = [
-                    ((today + timedelta(days=i * 10)).strftime("%Y-%m-%d"),
-                     (today + timedelta(days=i * 10 + 9)).strftime("%Y-%m-%d"))
-                    for i in range(4)
-                ]
+                wins = [((today + timedelta(days=i*10)).strftime("%Y-%m-%d"), (today + timedelta(days=i*10+9)).strftime("%Y-%m-%d")) for i in range(4)]
 
-            for w_start, w_end in windows:
-                p = {
-                    "departureAirportIataCode": origin,
-                    "outboundDepartureDateFrom": w_start,
-                    "outboundDepartureDateTo": w_end,
-                    "currency": "EUR",
-                    "limit": 200
-                }
-                if dest and dest not in ("LON", "ESP"):
-                    p["arrivalAirportIataCode"] = dest
-
-                out_fares = query_ryanair(session, p)
+            for ws, we in wins:
+                p = {"departureAirportIataCode": origin, "outboundDepartureDateFrom": ws, "outboundDepartureDateTo": we, "currency": "EUR", "limit": 200}
+                if dest and dest not in ("LON", "ESP"): p["arrivalAirportIataCode"] = dest
+                out_f = get_fares(s, p)
                 time.sleep(0.15)
-
-                valid_out = list()
-                origins = set()
-                for item in out_fares:
-                    leg = item.get("outbound", dict())
-                    price = item.get("summary", dict()).get("price", dict()).get("value")
-                    if leg and price is not None and float(price) <= max_budget:
-                        code = leg.get("arrivalAirport", dict()).get("iataCode", "")
-                        if valid_dest(code, dest):
-                            valid_out.append((leg, float(price)))
-                            origins.add(code)
-
-                in_map = dict()
-                for dep in list(origins)[:12]:
-                    in_fares = query_ryanair(session, {
-                        "departureAirportIataCode": dep,
-                        "arrivalAirportIataCode": origin,
-                        "outboundDepartureDateFrom": w_start,
-                        "outboundDepartureDateTo": w_end,
-                        "currency": "EUR",
-                        "limit": 60
-                    })
+                v_out, origs = [], set()
+                for it in out_f:
+                    lg, pr = it.get("outbound", {}), it.get("summary", {}).get("price", {}).get("value")
+                    if lg and pr is not None and float(pr) <= budget and ok_dest(lg["arrivalAirport"]["iataCode"], dest):
+                        v_out.append((lg, float(pr))); origs.add(lg["arrivalAirport"]["iataCode"])
+                in_map = {}
+                for dep in list(origs)[:12]:
+                    for it in get_fares(s, {"departureAirportIataCode": dep, "arrivalAirportIataCode": origin, "outboundDepartureDateFrom": ws, "outboundDepartureDateTo": we, "currency": "EUR", "limit": 60}):
+                        lg, pr = it.get("outbound", {}), it.get("summary", {}).get("price", {}).get("value")
+                        if lg and pr is not None: in_map.setdefault(f"{dep}_{lg['departureDate'][:10]}", []).append((lg, float(pr)))
                     time.sleep(0.15)
-                    for item in in_fares:
-                        leg = item.get("outbound", dict())
-                        price = item.get("summary", dict()).get("price", dict()).get("value")
-                        if leg and price is not None:
-                            in_map.setdefault(f"{dep}_{leg['departureDate'][:10]}", list()).append((leg, float(price)))
-
-                for o_leg, o_price in valid_out:
-                    code = o_leg["arrivalAirport"]["iataCode"]
-                    d_str = o_leg["departureDate"][:10]
-                    name = f"{o_leg['arrivalAirport']['name']}, {o_leg['arrivalAirport']['countryName']}"
-                    for i_leg, i_price in in_map.get(f"{code}_{d_str}", list()):
-                        total = round(o_price + i_price, 2)
-                        o_dep = datetime.fromisoformat(o_leg["departureDate"])
-                        o_arr = datetime.fromisoformat(o_leg["arrivalDate"])
-                        i_dep = datetime.fromisoformat(i_leg["departureDate"])
-                        i_arr = datetime.fromisoformat(i_leg["arrivalDate"])
-                        uid = f"{code}_{d_str}_{o_leg['flightNumber']}_{i_leg['flightNumber']}"
-                        if total <= max_budget and (i_dep - o_arr).total_seconds() >= 18000 and uid not in seen:
+                for o_lg, o_pr in v_out:
+                    c, ds = o_lg["arrivalAirport"]["iataCode"], o_lg["departureDate"][:10]
+                    nm = f"{o_lg['arrivalAirport']['name']}, {o_lg['arrivalAirport']['countryName']}"
+                    for i_lg, i_pr in in_map.get(f"{c}_{ds}", []):
+                        tot = round(o_pr + i_pr, 2)
+                        hrs = (datetime.fromisoformat(i_lg["departureDate"]) - datetime.fromisoformat(o_lg["arrivalDate"])).total_seconds()
+                        uid = f"{c}_{ds}_{o_lg['flightNumber']}_{i_lg['flightNumber']}"
+                        if tot <= budget and hrs >= 18000 and uid not in seen:
                             seen.add(uid)
-                            deals.append({
-                                "id": uid,
-                                "origin": origin,
-                                "destination": f"{name} ({code})",
-                                "total_price": total,
-                                "deal_tier": "⚡ Extreme Saver" if total < 45 else "⚡ Same-Day Return",
-                                "out_dep_time": o_dep.isoformat(),
-                                "outbound_time": o_arr.isoformat(),
-                                "inbound_time": i_dep.isoformat(),
-                                "in_arr_time": i_arr.isoformat(),
-                                "flight_number": f"{o_leg['flightNumber']} / {i_leg['flightNumber']}",
-                                "prediction": 99
-                            })
+                            deals.append(make_deal(uid, origin, nm, c, tot, "⚡ Extreme Saver" if tot < 45 else "⚡ Same-Day Return", o_lg, i_lg, 99))
         else:
-            min_n, max_n = NIGHT_RANGES.get(duration_type, (2, 7))
-            if specific_date:
-                b = datetime.strptime(specific_date, "%Y-%m-%d").date()
-                out_from = specific_date
-                out_to = specific_date
-                in_from = (b + timedelta(days=min_n)).strftime("%Y-%m-%d")
-                in_to = (b + timedelta(days=max_n)).strftime("%Y-%m-%d")
+            mn, mx = NIGHTS.get(dur, (2, 7))
+            if s_date:
+                b = datetime.strptime(s_date, "%Y-%m-%d").date()
+                of, ot, inf, int_d = s_date, s_date, (b + timedelta(days=mn)).strftime("%Y-%m-%d"), (b + timedelta(days=mx)).strftime("%Y-%m-%d")
             else:
                 end = today + timedelta(days=60)
-                out_from = today.strftime("%Y-%m-%d")
-                out_to = (end - timedelta(days=min_n)).strftime("%Y-%m-%d")
-                in_from = (today + timedelta(days=min_n)).strftime("%Y-%m-%d")
-                in_to = end.strftime("%Y-%m-%d")
-
-            p = {
-                "departureAirportIataCode": origin,
-                "outboundDepartureDateFrom": out_from,
-                "outboundDepartureDateTo": out_to,
-                "currency": "EUR",
-                "limit": 200
-            }
-            if dest and dest not in ("LON", "ESP"):
-                p["arrivalAirportIataCode"] = dest
-
-            out_fares = query_ryanair(session, p)
+                of, ot, inf, int_d = today.strftime("%Y-%m-%d"), (end - timedelta(days=mn)).strftime("%Y-%m-%d"), (today + timedelta(days=mn)).strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+            p = {"departureAirportIataCode": origin, "outboundDepartureDateFrom": of, "outboundDepartureDateTo": ot, "currency": "EUR", "limit": 200}
+            if dest and dest not in ("LON", "ESP"): p["arrivalAirportIataCode"] = dest
+            by_d = {}
+            for it in get_fares(s, p):
+                lg, pr = it.get("outbound", {}), it.get("summary", {}).get("price", {}).get("value")
+                if lg and pr is not None and float(pr) <= budget:
+                    c = lg["arrivalAirport"]["iataCode"]
+                    if (w_int is None or datetime.fromisoformat(lg["departureDate"]).weekday() == w_int) and ok_dest(c, dest):
+                        by_d.setdefault(c, []).append((lg, float(pr)))
             time.sleep(0.15)
-
-            by_dest = dict()
-            for item in out_fares:
-                leg = item.get("outbound", dict())
-                price = item.get("summary", dict()).get("price", dict()).get("value")
-                if leg and price is not None and float(price) <= max_budget:
-                    code = leg.get("arrivalAirport", dict()).get("iataCode", "")
-                    if (w_int is None or datetime.fromisoformat(leg["departureDate"]).weekday() == w_int) and valid_dest(code, dest):
-                        by_dest.setdefault(code, list()).append((leg, float(price)))
-
-            for code, out_list in list(by_dest.items())[:15]:
-                in_fares = query_ryanair(session, {
-                    "departureAirportIataCode": code,
-                    "arrivalAirportIataCode": origin,
-                    "outboundDepartureDateFrom": in_from,
-                    "outboundDepartureDateTo": in_to,
-                    "currency": "EUR",
-                    "limit": 100
-                })
+            for c, o_list in list(by_d.items())[:15]:
+                in_f = get_fares(s, {"departureAirportIataCode": c, "arrivalAirportIataCode": origin, "outboundDepartureDateFrom": inf, "outboundDepartureDateTo": int_d, "currency": "EUR", "limit": 100})
                 time.sleep(0.15)
-                for o_leg, o_price in out_list:
-                    o_dep = datetime.fromisoformat(o_leg["departureDate"])
-                    o_arr = datetime.fromisoformat(o_leg["arrivalDate"])
-                    name = f"{o_leg['arrivalAirport']['name']}, {o_leg['arrivalAirport']['countryName']}"
-                    for item in in_fares:
-                        i_leg = item.get("outbound", dict())
-                        i_price = item.get("summary", dict()).get("price", dict()).get("value")
-                        if i_leg and i_price is not None:
-                            i_dep = datetime.fromisoformat(i_leg["departureDate"])
-                            i_arr = datetime.fromisoformat(i_leg["arrivalDate"])
-                            nights = (i_dep.date() - o_dep.date()).days
-                            total = round(o_price + float(i_price), 2)
-                            uid = f"{code}_{o_dep.strftime('%Y-%m-%d')}_{i_dep.strftime('%Y-%m-%d')}"
-                            if min_n <= nights <= max_n and total <= max_budget and uid not in seen:
+                for o_lg, o_pr in o_list:
+                    od = datetime.fromisoformat(o_lg["departureDate"]).date()
+                    nm = f"{o_lg['arrivalAirport']['name']}, {o_lg['arrivalAirport']['countryName']}"
+                    for it in in_f:
+                        i_lg, i_pr = it.get("outbound", {}), it.get("summary", {}).get("price", {}).get("value")
+                        if i_lg and i_pr is not None:
+                            id_dt = datetime.fromisoformat(i_lg["departureDate"]).date()
+                            nts, tot = (id_dt - od).days, round(o_pr + float(i_pr), 2)
+                            uid = f"{c}_{od}_{id_dt}"
+                            if mn <= nts <= mx and tot <= budget and uid not in seen:
                                 seen.add(uid)
-                                deals.append({
-                                    "id": uid,
-                                    "origin": origin,
-                                    "destination": f"{name} ({code})",
-                                    "total_price": total,
+                                deals.append(make_deal(uid, origin, nm, c, tot, f"🌴 {nts} Nights (Back {id_dt.strftime('%d %b')})", o_lg, i_lg, 98))
+
+        deals.sort(key=lambda x: x["total_price"])
+        print(json.dumps({"status": "success", "deals": deals[:50]}))
+    except Exception as e:
+        print(json.dumps({"status": "error", "message": str(e)}))
+
+if __name__ == "__main__":
+    a = sys.argv[1:]
+    fetch_deals(a[0] if len(a)>0 else "DUB", a[1] if len(a)>1 else "", a[2] if len(a)>2 else "daytrip", float(a[3]) if len(a)>3 else 250.0, a[4] if len(a)>4 else "", a[5] if len(a)>5 else "")
